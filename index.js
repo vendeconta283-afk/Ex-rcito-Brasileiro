@@ -319,77 +319,84 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
-    if (interaction.isCommand()) {
-        if (interaction.commandName === 'criar') {
-            await handleCriar(interaction);
-        } else if (interaction.commandName === 'painelverificacao') {
-            if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
-            await handlePainel(interaction);
-        } else if (interaction.commandName === 'ticket') {
-            if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
-            await handleTicketPanel(interaction);
-        } else if (interaction.commandName === 'limpar') {
-            if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
-            const quantidade = interaction.options.getInteger('quantidade');
-            await interaction.channel.bulkDelete(quantidade, true);
-            await interaction.reply({ content: `✅ ${quantidade} mensagens apagadas.`, ephemeral: true });
-        } else if (interaction.commandName === 'modolento') {
-            if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
-            const canal = interaction.options.getChannel('canal');
-            const segundos = interaction.options.getInteger('segundos');
-            await canal.setRateLimitPerUser(segundos);
-            await interaction.reply({ content: `✅ Modo lento em ${canal} definido para ${segundos} segundos.`, ephemeral: true });
-        } else if (interaction.commandName === 'banir') {
-            if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
-            const usuario = interaction.options.getUser('usuario');
-            const motivo = interaction.options.getString('motivo') || 'Não especificado';
-            const member = await interaction.guild.members.fetch(usuario.id).catch(() => null);
-            if (!member) return interaction.reply({ content: '❌ Usuário não encontrado.', ephemeral: true });
-            if (!member.bannable) return interaction.reply({ content: '❌ Não posso banir este usuário.', ephemeral: true });
-            await member.ban({ reason: motivo });
-            await interaction.reply({ content: `✅ ${usuario.tag} banido. Motivo: ${motivo}`, ephemeral: true });
-        } else if (interaction.commandName === 'mutar') {
-            if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
-            const usuario = interaction.options.getUser('usuario');
-            const minutos = interaction.options.getInteger('minutos');
-            const motivo = interaction.options.getString('motivo') || 'Não especificado';
-            const member = await interaction.guild.members.fetch(usuario.id).catch(() => null);
-            if (!member) return interaction.reply({ content: '❌ Usuário não encontrado.', ephemeral: true });
-            if (!member.moderatable) return interaction.reply({ content: '❌ Não posso mutar este usuário.', ephemeral: true });
-            const ms = minutos * 60 * 1000;
-            await member.timeout(ms, motivo);
-            await interaction.reply({ content: `✅ ${usuario.tag} mutado por ${minutos} minutos. Motivo: ${motivo}`, ephemeral: true });
-        } else if (interaction.commandName === 'aviso') {
-            if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
-            const usuario = interaction.options.getUser('usuario');
-            const mensagem = interaction.options.getString('mensagem');
-            const embed = new EmbedBuilder()
-                .setTitle('⚠️ AVISO')
-                .setDescription(`${usuario}, ${mensagem}`)
-                .setColor(0xff0000);
-            await interaction.channel.send({ embeds: [embed] });
-            await interaction.reply({ content: '✅ Aviso enviado.', ephemeral: true });
-        } else if (interaction.commandName === 'promover') {
-            await handlePromocao(interaction, 'promover');
-        } else if (interaction.commandName === 'rebaixar') {
-            await handlePromocao(interaction, 'rebaixar');
+    try {
+        if (interaction.isCommand()) {
+            if (interaction.commandName === 'criar') {
+                await handleCriar(interaction);
+            } else if (interaction.commandName === 'painelverificacao') {
+                if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
+                await handlePainel(interaction);
+            } else if (interaction.commandName === 'ticket') {
+                if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
+                await handleTicketPanel(interaction);
+            } else if (interaction.commandName === 'limpar') {
+                if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
+                const quantidade = interaction.options.getInteger('quantidade');
+                await interaction.channel.bulkDelete(quantidade, true);
+                await interaction.reply({ content: `✅ ${quantidade} mensagens apagadas.`, ephemeral: true });
+            } else if (interaction.commandName === 'modolento') {
+                if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
+                const canal = interaction.options.getChannel('canal');
+                const segundos = interaction.options.getInteger('segundos');
+                await canal.setRateLimitPerUser(segundos);
+                await interaction.reply({ content: `✅ Modo lento em ${canal} definido para ${segundos} segundos.`, ephemeral: true });
+            } else if (interaction.commandName === 'banir') {
+                if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
+                const usuario = interaction.options.getUser('usuario');
+                const motivo = interaction.options.getString('motivo') || 'Não especificado';
+                const member = await interaction.guild.members.fetch(usuario.id).catch(() => null);
+                if (!member) return interaction.reply({ content: '❌ Usuário não encontrado.', ephemeral: true });
+                if (!member.bannable) return interaction.reply({ content: '❌ Não posso banir este usuário.', ephemeral: true });
+                await member.ban({ reason: motivo });
+                await interaction.reply({ content: `✅ ${usuario.tag} banido. Motivo: ${motivo}`, ephemeral: true });
+            } else if (interaction.commandName === 'mutar') {
+                if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
+                const usuario = interaction.options.getUser('usuario');
+                const minutos = interaction.options.getInteger('minutos');
+                const motivo = interaction.options.getString('motivo') || 'Não especificado';
+                const member = await interaction.guild.members.fetch(usuario.id).catch(() => null);
+                if (!member) return interaction.reply({ content: '❌ Usuário não encontrado.', ephemeral: true });
+                if (!member.moderatable) return interaction.reply({ content: '❌ Não posso mutar este usuário.', ephemeral: true });
+                const ms = minutos * 60 * 1000;
+                await member.timeout(ms, motivo);
+                await interaction.reply({ content: `✅ ${usuario.tag} mutado por ${minutos} minutos. Motivo: ${motivo}`, ephemeral: true });
+            } else if (interaction.commandName === 'aviso') {
+                if (!isModOrHigher(interaction.member)) return interaction.reply({ content: '❌ Apenas MOD+ podem usar este comando.', ephemeral: true });
+                const usuario = interaction.options.getUser('usuario');
+                const mensagem = interaction.options.getString('mensagem');
+                const embed = new EmbedBuilder()
+                    .setTitle('⚠️ AVISO')
+                    .setDescription(`${usuario}, ${mensagem}`)
+                    .setColor(0xff0000);
+                await interaction.channel.send({ embeds: [embed] });
+                await interaction.reply({ content: '✅ Aviso enviado.', ephemeral: true });
+            } else if (interaction.commandName === 'promover') {
+                await handlePromocao(interaction, 'promover');
+            } else if (interaction.commandName === 'rebaixar') {
+                await handlePromocao(interaction, 'rebaixar');
+            }
+        } else if (interaction.isButton()) {
+            if (interaction.customId === 'btn_vincular') await startVerification(interaction);
+            else if (interaction.customId === 'btn_sync') await handleSync(interaction);
+            else if (interaction.customId === 'btn_guia') await showGuia(interaction);
+            else if (interaction.customId === 'btn_verificar_bio') await checkBio(interaction);
+            else if (interaction.customId === 'btn_ticket') await handleTicket(interaction);
+        } else if (interaction.isModalSubmit()) {
+            if (interaction.customId === 'modal_nick') await handleNickSubmit(interaction);
+        } else if (interaction.isAutocomplete()) {
+            if (interaction.commandName === 'promover' || interaction.commandName === 'rebaixar') {
+                const focused = interaction.options.getFocused();
+                const choices = Object.keys(config.RANK_POR_NOME)
+                    .filter(name => name.toLowerCase().includes(focused.toLowerCase()))
+                    .slice(0, 25)
+                    .map(name => ({ name, value: name }));
+                await interaction.respond(choices);
+            }
         }
-    } else if (interaction.isButton()) {
-        if (interaction.customId === 'btn_vincular') await startVerification(interaction);
-        else if (interaction.customId === 'btn_sync') await handleSync(interaction);
-        else if (interaction.customId === 'btn_guia') await showGuia(interaction);
-        else if (interaction.customId === 'btn_verificar_bio') await checkBio(interaction);
-        else if (interaction.customId === 'btn_ticket') await handleTicket(interaction);
-    } else if (interaction.isModalSubmit()) {
-        if (interaction.customId === 'modal_nick') await handleNickSubmit(interaction);
-    } else if (interaction.isAutocomplete()) {
-        if (interaction.commandName === 'promover' || interaction.commandName === 'rebaixar') {
-            const focused = interaction.options.getFocused();
-            const choices = Object.keys(config.RANK_POR_NOME)
-                .filter(name => name.toLowerCase().includes(focused.toLowerCase()))
-                .slice(0, 25)
-                .map(name => ({ name, value: name }));
-            await interaction.respond(choices);
+    } catch (error) {
+        console.error('Erro em interação:', error);
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({ content: '❌ Ocorreu um erro ao processar o comando.', ephemeral: true }).catch(() => {});
         }
     }
 });
@@ -527,12 +534,19 @@ async function handleTicketPanel(interaction) {
 
 // ================= VINCULAÇÃO =================
 async function startVerification(interaction) {
-    const modal = new ModalBuilder().setCustomId('modal_nick').setTitle('Vincular Roblox');
-    const input = new TextInputBuilder()
-        .setCustomId('nick_roblox').setLabel('Seu Nickname no Roblox')
-        .setPlaceholder('Ex: SeuNick123').setStyle(TextInputStyle.Short).setRequired(true);
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
-    await interaction.showModal(modal);
+    try {
+        const modal = new ModalBuilder().setCustomId('modal_nick').setTitle('Vincular Roblox');
+        const input = new TextInputBuilder()
+            .setCustomId('nick_roblox').setLabel('Seu Nickname no Roblox')
+            .setPlaceholder('Ex: SeuNick123').setStyle(TextInputStyle.Short).setRequired(true);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        await interaction.showModal(modal);
+    } catch (error) {
+        console.error('Erro ao abrir modal:', error);
+        if (!interaction.replied) {
+            await interaction.reply({ content: '❌ Não foi possível abrir o formulário. Tente novamente.', ephemeral: true }).catch(() => {});
+        }
+    }
 }
 
 async function handleNickSubmit(interaction) {

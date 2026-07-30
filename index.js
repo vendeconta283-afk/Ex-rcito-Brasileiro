@@ -277,7 +277,7 @@ const painelCommand = new SlashCommandBuilder()
 
 const ticketCommand = new SlashCommandBuilder()
     .setName('ticket')
-    .setDescription('Envia o painel de suporte/tickets neste canal')
+    .setDescription('Envia o painel de suporte/compras')
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild);
 
 const limparCommand = new SlashCommandBuilder()
@@ -351,12 +351,21 @@ const giroCommand = new SlashCommandBuilder()
     .setName('giro')
     .setDescription('Gire a roleta e ganhe um prêmio aleatório (1 vez por dia)');
 
+const restGiroCommand = new SlashCommandBuilder()
+    .setName('restgiro')
+    .setDescription('Reseta o cooldown do /giro de um usuário (Apenas Criador)')
+    .addUserOption(option =>
+        option.setName('usuario')
+            .setDescription('Usuário para resetar o giro')
+            .setRequired(true)
+    );
+
 client.once('ready', async () => {
     console.log(`✅ Bot logado como ${client.user.tag}`);
     await client.application.commands.set([
         criarCommand, painelCommand, ticketCommand,
         limparCommand, modolentoCommand, banCommand, muteCommand, avisoCommand,
-        promoverCommand, rebaixarCommand, comprarPatenteCommand, giroCommand
+        promoverCommand, rebaixarCommand, comprarPatenteCommand, giroCommand, restGiroCommand
     ]);
     console.log('📌 Comandos registrados.');
 
@@ -438,14 +447,19 @@ client.on('interactionCreate', async interaction => {
                 await handleTabelaPatentes(interaction);
             } else if (interaction.commandName === 'giro') {
                 await handleGirar(interaction);
+            } else if (interaction.commandName === 'restgiro') {
+                await handleRestGiro(interaction);
             }
         } else if (interaction.isButton()) {
             if (interaction.customId === 'btn_vincular') await startVerification(interaction);
             else if (interaction.customId === 'btn_sync') await handleSync(interaction);
             else if (interaction.customId === 'btn_guia') await showGuia(interaction);
             else if (interaction.customId === 'btn_verificar_bio') await checkBio(interaction);
-            else if (interaction.customId === 'btn_ticket') {
-                await criarTicket(interaction);
+            else if (interaction.customId === 'btn_ticket_suporte' || interaction.customId === 'btn_ticket_compra') {
+                await criarTicket(interaction, interaction.customId === 'btn_ticket_compra');
+            }
+            else if (interaction.customId === 'btn_fechar_ticket') {
+                await fecharTicket(interaction);
             }
         } else if (interaction.isModalSubmit()) {
             if (interaction.customId === 'modal_nick') await handleNickSubmit(interaction);
@@ -467,10 +481,11 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// ================= CRIAÇÃO DE TICKET =================
-async function criarTicket(interaction) {
+// ================= CRIAÇÃO DE TICKET (SUPORTE OU COMPRA) =================
+async function criarTicket(interaction, isCompra) {
     const guild = interaction.guild;
     const user = interaction.user;
+    const tipo = isCompra ? 'compra' : 'suporte';
 
     const adminRole = guild.roles.cache.find(r => r.name === 'Administrador');
     const staffRole = guild.roles.cache.find(r => r.name === 'Staff');
@@ -480,29 +495,64 @@ async function criarTicket(interaction) {
         { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
         { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
     ];
-    if (adminRole) permissoes.push({ id: adminRole.id, allow: [PermissionsBitField.Flags.ViewChannel] });
-    if (staffRole) permissoes.push({ id: staffRole.id, allow: [PermissionsBitField.Flags.ViewChannel] });
-    if (modRole) permissoes.push({ id: modRole.id, allow: [PermissionsBitField.Flags.ViewChannel] });
+    if (adminRole) permissoes.push({ id: adminRole.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] });
+    if (staffRole) permissoes.push({ id: staffRole.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] });
+    if (modRole) permissoes.push({ id: modRole.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] });
 
     try {
         const canal = await guild.channels.create({
-            name: `ticket-${user.username}`,
+            name: `ticket-${tipo}-${user.username}`,
             type: ChannelType.GuildText,
             permissionOverwrites: permissoes,
         });
 
-        await canal.send(`🎫 **Ticket aberto por ${user}**\nDescreva sua dúvida ou solicitação e aguarde o atendimento.`);
-        await interaction.reply({ content: `✅ Seu ticket foi criado: ${canal}`, ephemeral: true });
+        // Mensagem inicial
+        let mensagemInicial = `🎫 **Ticket de ${tipo} aberto por ${user}**\n`;
+        mensagemInicial += isCompra ? 'Descreva a patente que deseja comprar e um administrador irá atendê-lo.' : 'Descreva sua dúvida ou problema e aguarde o atendimento.';
 
-        // Notificar staff no canal de tickets
+        // Botão de fechar (apenas staff pode usar)
+        const closeBtn = new ButtonBuilder()
+            .setCustomId('btn_fechar_ticket')
+            .setLabel('Fechar Ticket')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('🔒');
+
+        const row = new ActionRowBuilder().addComponents(closeBtn);
+
+        await canal.send({ content: mensagemInicial, components: [row] });
+        await interaction.reply({ content: `✅ Ticket criado: ${canal}`, ephemeral: true });
+
+        // Notificar staff
         const ticketChannel = guild.channels.cache.find(c => c.name === '🎫-tickets');
         if (ticketChannel) {
-            await ticketChannel.send(`📢 Novo ticket criado por ${user}: ${canal}`);
+            await ticketChannel.send(`📢 Novo ticket de ${tipo} criado por ${user}: ${canal}`);
         }
     } catch (err) {
         console.error('Erro ao criar ticket:', err);
         await interaction.reply({ content: '❌ Não foi possível criar o ticket. Verifique as permissões do bot.', ephemeral: true });
     }
+}
+
+// ================= FECHAR TICKET =================
+async function fecharTicket(interaction) {
+    const canal = interaction.channel;
+    if (!canal.name.startsWith('ticket-')) {
+        return interaction.reply({ content: '❌ Este comando só pode ser usado em canais de ticket.', ephemeral: true });
+    }
+
+    // Verificar se o usuário é staff
+    if (!isModOrHigher(interaction.member)) {
+        return interaction.reply({ content: '❌ Apenas staff pode fechar tickets.', ephemeral: true });
+    }
+
+    await interaction.reply('🔒 Ticket fechado. O canal será deletado em 5 segundos...');
+    setTimeout(async () => {
+        try {
+            await canal.delete();
+        } catch (e) {
+            console.error('Erro ao deletar canal:', e);
+        }
+    }, 5000);
 }
 
 // ================= /CRIAR =================
@@ -589,16 +639,6 @@ async function handleCriar(interaction) {
             await log('✅ Painel de verificação enviado.');
         }
 
-        const ticketChannel = guild.channels.cache.find(c => c.name === '🎫-tickets');
-        if (ticketChannel) {
-            const embed = new EmbedBuilder().setTitle('🎫 SUPORTE').setDescription('Clique no botão abaixo para abrir um ticket.').setColor(0x3498db);
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('btn_ticket').setLabel('Abrir Ticket').setStyle(ButtonStyle.Primary).setEmoji('🎫')
-            );
-            await ticketChannel.send({ embeds: [embed], components: [row] });
-            await log('✅ Painel de tickets enviado.');
-        }
-
         await interaction.editReply('✅ Servidor recriado com sucesso! Verifique este canal para detalhes.');
     } catch (err) {
         console.error(err);
@@ -607,7 +647,32 @@ async function handleCriar(interaction) {
     }
 }
 
-// ================= PAINÉIS =================
+// ================= PAINEL DE TICKET (SUPORTE E COMPRA) =================
+async function handleTicketPanel(interaction) {
+    const embed = new EmbedBuilder()
+        .setTitle('🎫 CENTRAL DE ATENDIMENTO')
+        .setDescription('Escolha uma opção abaixo:')
+        .setColor(0x3498db);
+
+    const row = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('btn_ticket_suporte')
+                .setLabel('Suporte')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🎫'),
+            new ButtonBuilder()
+                .setCustomId('btn_ticket_compra')
+                .setLabel('Comprar Patente')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('💲')
+        );
+
+    await interaction.channel.send({ embeds: [embed], components: [row] });
+    await interaction.reply({ content: '✅ Painel de tickets enviado!', ephemeral: true });
+}
+
+// ================= PAINEL DE VERIFICAÇÃO =================
 async function handlePainel(interaction) {
     const embed = new EmbedBuilder()
         .setTitle('🔗 VINCULAÇÃO ROBLOX')
@@ -621,19 +686,6 @@ async function handlePainel(interaction) {
         );
     await interaction.channel.send({ embeds: [embed], components: [row] });
     await interaction.reply({ content: '✅ Painel enviado!', ephemeral: true });
-}
-
-async function handleTicketPanel(interaction) {
-    const embed = new EmbedBuilder()
-        .setTitle('🎫 SUPORTE')
-        .setDescription('Clique no botão abaixo para abrir um ticket de ajuda.')
-        .setColor(0x3498db);
-    const row = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder().setCustomId('btn_ticket').setLabel('Abrir Ticket').setStyle(ButtonStyle.Primary).setEmoji('🎫')
-        );
-    await interaction.channel.send({ embeds: [embed], components: [row] });
-    await interaction.reply({ content: '✅ Painel de tickets enviado!', ephemeral: true });
 }
 
 // ================= VINCULAÇÃO =================
@@ -738,7 +790,6 @@ async function showGuia(interaction) {
 
 // ================= TABELA DE COMPRA DE PATENTES (SÓCIO+) =================
 async function handleTabelaPatentes(interaction) {
-    // Verificar se o autor é Sócio+ (rank >= 23)
     const autorRank = await getAutorRank(interaction.member);
     if (autorRank < 23) {
         return interaction.reply({ content: '❌ Apenas Sócio+ podem usar este comando.', ephemeral: true });
@@ -746,29 +797,29 @@ async function handleTabelaPatentes(interaction) {
 
     const embed = new EmbedBuilder()
         .setTitle('💲 TABELA DE COMPRA DE PATENTES')
-        .setDescription('Adquira sua patente através de tickets! (Preços reais – configure no código)')
+        .setDescription('Adquira sua patente através de tickets! (Preços reais)')
         .addFields(
-            { name: '[3º SGT] Terceiro-Sargento', value: 'R$ 10.000', inline: true },
-            { name: '[2º SGT] Segundo-Sargento', value: 'R$ 15.000', inline: true },
-            { name: '[1º SGT] Primeiro-Sargento', value: 'R$ 20.000', inline: true },
-            { name: '[ST] Subtenente', value: 'R$ 30.000', inline: true },
-            { name: '[CT] Cadete', value: 'R$ 50.000', inline: true },
-            { name: '[ASP] Aspirante a Oficial', value: 'R$ 75.000', inline: true },
-            { name: '[2º TEN] Segundo-Tenente', value: 'R$ 100.000', inline: true },
-            { name: '[1º TEN] Primeiro-Tenente', value: 'R$ 150.000', inline: true },
-            { name: '[CAP] Capitão', value: 'R$ 200.000', inline: true },
-            { name: '[MAJ] Major', value: 'R$ 300.000', inline: true },
-            { name: '[TC] Tenente-Coronel', value: 'R$ 400.000', inline: true },
-            { name: '[CEL] Coronel', value: 'R$ 500.000', inline: true },
-            { name: '[GEN BDA] General de Brigada', value: 'R$ 750.000', inline: true },
-            { name: '[GEN DIV] General de Divisão', value: 'R$ 1.000.000', inline: true },
-            { name: '[GEN EX] General de Exército', value: 'R$ 1.500.000', inline: true },
-            { name: '[SCMT] Subcomandante', value: 'R$ 2.000.000', inline: true },
-            { name: '[CMT] Comandante', value: 'R$ 3.000.000', inline: true },
-            { name: '[V-PRES] Vice-Presidente', value: 'R$ 5.000.000', inline: true },
-            { name: '[PRES] Presidente', value: 'R$ 10.000.000', inline: true },
-            { name: '[SC] Sócio', value: 'R$ 15.000.000', inline: true },
-            { name: '[SCR] Subcriador', value: 'R$ 20.000.000', inline: true },
+            { name: '[3º SGT] Terceiro-Sargento', value: 'R$ 7,00', inline: true },
+            { name: '[2º SGT] Segundo-Sargento', value: 'R$ 10,00', inline: true },
+            { name: '[1º SGT] Primeiro-Sargento', value: 'R$ 15,00', inline: true },
+            { name: '[ST] Subtenente', value: 'R$ 20,00', inline: true },
+            { name: '[CT] Cadete', value: 'R$ 30,00', inline: true },
+            { name: '[ASP] Aspirante a Oficial', value: 'R$ 50,00', inline: true },
+            { name: '[2º TEN] Segundo-Tenente', value: 'R$ 75,00', inline: true },
+            { name: '[1º TEN] Primeiro-Tenente', value: 'R$ 100,00', inline: true },
+            { name: '[CAP] Capitão', value: 'R$ 150,00', inline: true },
+            { name: '[MAJ] Major', value: 'R$ 200,00', inline: true },
+            { name: '[TC] Tenente-Coronel', value: 'R$ 300,00', inline: true },
+            { name: '[CEL] Coronel', value: 'R$ 500,00', inline: true },
+            { name: '[GEN BDA] General de Brigada', value: 'R$ 750,00', inline: true },
+            { name: '[GEN DIV] General de Divisão', value: 'R$ 1.000,00', inline: true },
+            { name: '[GEN EX] General de Exército', value: 'R$ 1.500,00', inline: true },
+            { name: '[SCMT] Subcomandante', value: 'R$ 2.000,00', inline: true },
+            { name: '[CMT] Comandante', value: 'R$ 3.000,00', inline: true },
+            { name: '[V-PRES] Vice-Presidente', value: 'R$ 5.000,00', inline: true },
+            { name: '[PRES] Presidente', value: 'R$ 10.000,00', inline: true },
+            { name: '[SC] Sócio', value: 'R$ 15.000,00', inline: true },
+            { name: '[SCR] Subcriador', value: 'R$ 20.000,00', inline: true },
         )
         .setColor(0xffd700)
         .setFooter({ text: 'Para comprar, abra um ticket e informe a patente desejada.' });
@@ -776,19 +827,18 @@ async function handleTabelaPatentes(interaction) {
     await interaction.reply({ embeds: [embed] });
 }
 
-// ================= /GIRO (DATASTORES SEPARADOS) =================
+// ================= /GIRO COM DATASTORE CORRIGIDO =================
 async function handleGirar(interaction) {
     const user = interaction.user;
 
     // Verifica cooldown de 24h
     const now = Date.now();
-    const lastGiro = await VerificationModel.findOne({ discordId: user.id, step: 'done' });
-    if (lastGiro && lastGiro.lastGiro && (now - lastGiro.lastGiro.getTime()) < 24 * 60 * 60 * 1000) {
-        const hoursLeft = Math.ceil((24 * 60 * 60 * 1000 - (now - lastGiro.lastGiro.getTime())) / (60 * 60 * 1000));
+    const userData = await VerificationModel.findOne({ discordId: user.id });
+    if (userData && userData.lastGiro && (now - userData.lastGiro.getTime()) < 24 * 60 * 60 * 1000) {
+        const hoursLeft = Math.ceil((24 * 60 * 60 * 1000 - (now - userData.lastGiro.getTime())) / (60 * 60 * 1000));
         return interaction.reply({ content: `❌ Você já girou hoje! Tente novamente em ${hoursLeft} horas.`, ephemeral: true });
     }
 
-    // Prêmios (VIP, Dinheiro)
     const premios = [
         { nome: 'VIP por 1 dia', tipo: 'vip' },
         { nome: 'VIP por 3 dias', tipo: 'vip' },
@@ -799,7 +849,6 @@ async function handleGirar(interaction) {
 
     const premio = premios[Math.floor(Math.random() * premios.length)];
 
-    // Registra no banco de dados do bot
     await VerificationModel.findOneAndUpdate(
         { discordId: user.id },
         { lastGiro: new Date(), ultimoPremio: premio.nome },
@@ -810,80 +859,94 @@ async function handleGirar(interaction) {
     const robloxId = await getRobloxIdFromDiscord(user.id);
     if (!robloxId) {
         entrega = '⚠️ Você não está vinculado ao Roblox. O prêmio não pode ser entregue.';
-    } else if (process.env.ROBLOX_COOKIE) {
+    } else if (process.env.ROBLOX_COOKIE && process.env.UNIVERSE_ID) {
         try {
             const cookie = process.env.ROBLOX_COOKIE;
+            const universeId = process.env.UNIVERSE_ID;
+
             // Obter token XSRF
             const xsrfRes = await fetch('https://auth.roblox.com/v2/logout', {
                 method: 'POST',
                 headers: { 'Cookie': `.ROBLOSECURITY=${cookie}` }
             });
             const xsrfToken = xsrfRes.headers.get('x-csrf-token');
-
-            if (premio.tipo === 'vip') {
-                // DataStore VIP_Concedidos
-                const url = `https://apis.roblox.com/datastores/v1/universes/${process.env.UNIVERSE_ID}/standard-datastores/datastore/entries/entry?datastoreName=VIP_Concedidos&entryKey=${robloxId}`;
-                const saveRes = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Cookie': `.ROBLOSECURITY=${cookie}`,
-                        'x-csrf-token': xsrfToken
-                    },
-                    body: JSON.stringify({ value: true })
-                });
-                if (saveRes.ok) {
-                    entrega = '✅ VIP entregue automaticamente!';
-                } else {
-                    entrega = '⚠️ Não foi possível entregar o VIP. Um administrador irá verificar.';
-                }
-            } else if (premio.tipo === 'dinheiro') {
-                // DataStore ForcasBrasilData
-                // 1. Ler dados atuais
-                const getUrl = `https://apis.roblox.com/datastores/v1/universes/${process.env.UNIVERSE_ID}/standard-datastores/datastore/entries/entry?datastoreName=ForcasBrasilData&entryKey=${robloxId}`;
-                const getRes = await fetch(getUrl, {
-                    headers: {
-                        'Cookie': `.ROBLOSECURITY=${cookie}`,
-                        'x-csrf-token': xsrfToken
+            if (!xsrfToken) {
+                console.error('Erro ao obter XSRF token');
+                entrega = '⚠️ Erro interno (XSRF). Contate um administrador.';
+            } else {
+                if (premio.tipo === 'vip') {
+                    const url = `https://apis.roblox.com/datastores/v1/universes/${universeId}/standard-datastores/datastore/entries/entry?datastoreName=VIP_Concedidos&entryKey=${robloxId}`;
+                    console.log(`Tentando salvar VIP para ${robloxId}...`);
+                    const saveRes = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Cookie': `.ROBLOSECURITY=${cookie}`,
+                            'x-csrf-token': xsrfToken
+                        },
+                        body: JSON.stringify({ value: true })
+                    });
+                    const responseText = await saveRes.text();
+                    console.log(`Resposta VIP DataStore: ${saveRes.status} ${responseText}`);
+                    if (saveRes.ok) {
+                        entrega = '✅ VIP entregue automaticamente!';
+                    } else {
+                        entrega = `⚠️ Erro ao entregar VIP (${saveRes.status}). Um administrador irá verificar.`;
+                        console.error('Detalhes do erro VIP:', responseText);
                     }
-                });
-                let dataAtual = {};
-                if (getRes.ok) {
-                    const getData = await getRes.json();
-                    dataAtual = getData.value || {};
-                }
-                // Incrementa Dinheiro
-                dataAtual.Dinheiro = (dataAtual.Dinheiro || 0) + premio.valor;
-                // Salva de volta
-                const saveRes = await fetch(`https://apis.roblox.com/datastores/v1/universes/${process.env.UNIVERSE_ID}/standard-datastores/datastore/entries/entry?datastoreName=ForcasBrasilData&entryKey=${robloxId}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Cookie': `.ROBLOSECURITY=${cookie}`,
-                        'x-csrf-token': xsrfToken
-                    },
-                    body: JSON.stringify({ value: dataAtual })
-                });
-                if (saveRes.ok) {
-                    entrega = `✅ R$ ${premio.valor} entregues automaticamente!`;
-                } else {
-                    entrega = '⚠️ Não foi possível entregar o dinheiro. Um administrador irá verificar.';
+                } else if (premio.tipo === 'dinheiro') {
+                    // Ler dados atuais
+                    const getUrl = `https://apis.roblox.com/datastores/v1/universes/${universeId}/standard-datastores/datastore/entries/entry?datastoreName=ForcasBrasilData&entryKey=${robloxId}`;
+                    console.log(`Lendo dados atuais de ${robloxId}...`);
+                    const getRes = await fetch(getUrl, {
+                        headers: {
+                            'Cookie': `.ROBLOSECURITY=${cookie}`,
+                            'x-csrf-token': xsrfToken
+                        }
+                    });
+                    let dataAtual = {};
+                    if (getRes.ok) {
+                        const getData = await getRes.json();
+                        dataAtual = getData.value || {};
+                    } else {
+                        const errText = await getRes.text();
+                        console.log(`Aviso: Não foi possível ler dados atuais (${getRes.status}). Será criado novo. Resposta: ${errText}`);
+                    }
+                    dataAtual.Dinheiro = (dataAtual.Dinheiro || 0) + premio.valor;
+                    // Salvar
+                    const saveUrl = `https://apis.roblox.com/datastores/v1/universes/${universeId}/standard-datastores/datastore/entries/entry?datastoreName=ForcasBrasilData&entryKey=${robloxId}`;
+                    console.log(`Salvando novo valor para ${robloxId}: ${JSON.stringify(dataAtual)}`);
+                    const saveRes = await fetch(saveUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Cookie': `.ROBLOSECURITY=${cookie}`,
+                            'x-csrf-token': xsrfToken
+                        },
+                        body: JSON.stringify({ value: dataAtual })
+                    });
+                    const saveText = await saveRes.text();
+                    console.log(`Resposta Dinheiro DataStore: ${saveRes.status} ${saveText}`);
+                    if (saveRes.ok) {
+                        entrega = `✅ R$ ${premio.valor} entregues automaticamente!`;
+                    } else {
+                        entrega = `⚠️ Erro ao entregar dinheiro (${saveRes.status}). Um administrador irá verificar.`;
+                        console.error('Detalhes do erro Dinheiro:', saveText);
+                    }
                 }
             }
         } catch (err) {
-            console.error('Erro ao entregar prêmio:', err);
-            entrega = '⚠️ Erro na entrega automática. Contate um administrador.';
+            console.error('Erro na entrega do prêmio:', err);
+            entrega = '⚠️ Erro de conexão com a API Roblox. Tente novamente mais tarde.';
         }
     } else {
-        entrega = '⚠️ Cookie Roblox não configurado. O prêmio não pôde ser entregue.';
+        entrega = '⚠️ Variáveis de ambiente UNIVERSE_ID ou ROBLOX_COOKIE não configuradas.';
     }
 
     const embed = new EmbedBuilder()
         .setTitle('🎰 ROLETA DE PRÊMIOS')
         .setDescription(`${user} girou a roleta e ganhou:`)
-        .addFields(
-            { name: '🏆 Prêmio', value: `**${premio.nome}**`, inline: false }
-        )
+        .addFields({ name: '🏆 Prêmio', value: `**${premio.nome}**`, inline: false })
         .setColor(0x00ff00);
 
     if (entrega) {
@@ -893,7 +956,27 @@ async function handleGirar(interaction) {
     await interaction.reply({ embeds: [embed] });
 }
 
-// ================= PROMOÇÃO / REBAIXAMENTO (HIERÁRQUICO) =================
+// ================= /RESTGIRO (APENAS CRIADOR) =================
+async function handleRestGiro(interaction) {
+    const autorRank = await getAutorRank(interaction.member);
+    if (autorRank !== 255) {
+        return interaction.reply({ content: '❌ Apenas o Criador pode usar este comando.', ephemeral: true });
+    }
+
+    const targetUser = interaction.options.getUser('usuario');
+    if (!targetUser) {
+        return interaction.reply({ content: '❌ Usuário não encontrado.', ephemeral: true });
+    }
+
+    await VerificationModel.findOneAndUpdate(
+        { discordId: targetUser.id },
+        { $unset: { lastGiro: "" } }
+    );
+
+    await interaction.reply({ content: `✅ Cooldown do /giro resetado para ${targetUser.tag}.`, ephemeral: true });
+}
+
+// ================= PROMOÇÃO / REBAIXAMENTO =================
 async function handlePromocao(interaction, tipo) {
     await interaction.deferReply({ ephemeral: true });
 
